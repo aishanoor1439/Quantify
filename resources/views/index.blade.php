@@ -410,4 +410,293 @@
                             <div class="text-2xl">🚗</div>
                             <div>
                                 <div class="font-bold">${service.name}</div>
-                                <div class="text-xs text-white/40">${service.feedback_count} ratings</
+                                <div class="text-xs text-white/40">${service.feedback_count} ratings</div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-2xl font-bold ${this.getScoreColor(service.trust_score)}">${service.trust_score}</div>
+                            <div class="text-xs text-white/40">${statusText}</div>
+                        </div>
+                    `;
+                    container.appendChild(el);
+                });
+
+                document.getElementById('last-updated').innerHTML = `Last updated: ${new Date().toLocaleTimeString()}`;
+            }
+
+            updateServiceSelect(services) {
+                const select = document.getElementById('serviceSelect');
+                select.innerHTML = '<option value="">Select a service...</option>';
+                
+                services.forEach(service => {
+                    const option = document.createElement('option');
+                    option.value = service.id;
+                    option.textContent = `${service.name} (${service.trust_score})`;
+                    option.dataset.score = service.trust_score;
+                    option.dataset.count = service.feedback_count;
+                    select.appendChild(option);
+                });
+            }
+
+            updateStats(stats) {
+                document.getElementById('total-feedback').textContent = stats.total_feedback || 0;
+                document.getElementById('avg-score').textContent = stats.average_trust_score || '0.0';
+                document.getElementById('highest-score').textContent = stats.highest_score?.trust_score || '0.0';
+                document.getElementById('lowest-score').textContent = stats.lowest_score?.trust_score || '0.0';
+            }
+
+            updateChart(analytics) {
+                const ctx = document.getElementById('trustChart').getContext('2d');
+                
+                if (this.chart) {
+                    this.chart.destroy();
+                }
+
+                this.chart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: analytics.map(a => a.name),
+                        datasets: [{
+                            data: analytics.map(a => a.trust_score),
+                            backgroundColor: analytics.map(a => {
+                                if (a.trust_score >= 80) return '#10b981';
+                                if (a.trust_score >= 70) return '#3b82f6';
+                                if (a.trust_score >= 60) return '#f59e0b';
+                                if (a.trust_score >= 50) return '#f97316';
+                                return '#ef4444';
+                            }),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: '#94a3b8' }
+                            }
+                        }
+                    }
+                });
+            }
+
+            setupEventListeners() {
+                // Score sliders
+                ['behavior', 'delay', 'transparency'].forEach(type => {
+                    const slider = document.getElementById(`${type}Score`);
+                    const value = document.getElementById(`${type}Value`);
+                    
+                    slider.addEventListener('input', (e) => {
+                        value.textContent = `${e.target.value}/10`;
+                        this.updateScorePreview();
+                    });
+                });
+
+                // Service selection
+                document.getElementById('serviceSelect').addEventListener('change', (e) => {
+                    const selected = e.target.options[e.target.selectedIndex];
+                    const info = document.getElementById('serviceInfo');
+                    
+                    if (selected.value) {
+                        info.classList.remove('hidden');
+                        document.getElementById('currentScore').textContent = selected.dataset.score;
+                        document.getElementById('feedbackCount').textContent = selected.dataset.count;
+                    } else {
+                        info.classList.add('hidden');
+                    }
+                    
+                    this.updateScorePreview();
+                });
+
+                // Form submission
+                document.getElementById('feedbackForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.submitFeedback();
+                });
+
+                // Module switching
+                document.querySelectorAll('.module-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        if (btn.disabled) return;
+                        
+                        document.querySelectorAll('.module-btn').forEach(b => {
+                            b.classList.remove('module-active', 'bg-gradient-to-r', 'from-[#6366f1]', 'to-[#8b5cf6]', 'text-white');
+                            b.classList.add('text-white/50');
+                        });
+                        
+                        btn.classList.add('module-active', 'bg-gradient-to-r', 'from-[#6366f1]', 'to-[#8b5cf6]', 'text-white');
+                        btn.classList.remove('text-white/50');
+                        
+                        this.currentModule = btn.dataset.module;
+                        this.loadServices();
+                        this.loadAnalytics();
+                        this.addActivity(`Switched to ${btn.textContent.trim()} module`);
+                    });
+                });
+            }
+
+            updateScorePreview() {
+                const behavior = parseInt(document.getElementById('behaviorScore').value);
+                const delay = parseInt(document.getElementById('delayScore').value);
+                const transparency = parseInt(document.getElementById('transparencyScore').value);
+                
+                const preview = Math.round((behavior * 0.4 + delay * 0.35 + transparency * 0.25) * 10);
+                document.getElementById('scorePreview').textContent = preview;
+                
+                const bar = document.getElementById('previewBar');
+                bar.style.width = `${preview}%`;
+                bar.className = `score-fill ${this.getScoreClass(preview)}`;
+            }
+
+            async submitFeedback() {
+                const serviceId = document.getElementById('serviceSelect').value;
+                
+                if (!serviceId) {
+                    alert('Please select a service');
+                    return;
+                }
+
+                const submitBtn = document.querySelector('#feedbackForm button[type="submit"]');
+                const submitText = document.getElementById('submitText');
+                const submitLoading = document.getElementById('submitLoading');
+                
+                submitBtn.disabled = true;
+                submitText.classList.add('hidden');
+                submitLoading.classList.remove('hidden');
+
+                try {
+                    const response = await fetch('/api/feedback', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                        },
+                        body: JSON.stringify({
+                            service_id: parseInt(serviceId),
+                            behavior_score: parseInt(document.getElementById('behaviorScore').value),
+                            delay_score: parseInt(document.getElementById('delayScore').value),
+                            transparency_score: parseInt(document.getElementById('transparencyScore').value),
+                            session_token: this.sessionToken
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.addActivity(`⭐ New rating submitted - Impact: ${data.score_impact}`);
+                        this.showNotification('Rating submitted successfully!', 'success');
+                        
+                        // Reset form
+                        document.getElementById('behaviorScore').value = 5;
+                        document.getElementById('delayScore').value = 5;
+                        document.getElementById('transparencyScore').value = 5;
+                        document.getElementById('behaviorValue').textContent = '5/10';
+                        document.getElementById('delayValue').textContent = '5/10';
+                        document.getElementById('transparencyValue').textContent = '5/10';
+                        document.getElementById('serviceSelect').value = '';
+                        document.getElementById('serviceInfo').classList.add('hidden');
+                        
+                        // Refresh data
+                        await this.loadServices();
+                        await this.loadAnalytics();
+                        this.updateScorePreview();
+                    } else {
+                        throw new Error(data.message || 'Submission failed');
+                    }
+                } catch (error) {
+                    this.showNotification(error.message, 'error');
+                    this.addActivity(`❌ Submission failed: ${error.message}`);
+                } finally {
+                    submitBtn.disabled = false;
+                    submitText.classList.remove('hidden');
+                    submitLoading.classList.add('hidden');
+                }
+            }
+
+            addActivity(message) {
+                const container = document.getElementById('recentActivity');
+                const activity = document.createElement('div');
+                activity.className = 'flex items-center space-x-3 p-3 bg-white/5 rounded-lg animate-slide-in';
+                activity.innerHTML = `
+                    <div class="w-2 h-2 bg-[#6366f1] rounded-full"></div>
+                    <div class="text-sm flex-1">${message}</div>
+                    <div class="text-xs text-white/40">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                `;
+                
+                container.insertBefore(activity, container.firstChild);
+                
+                while (container.children.length > 5) {
+                    container.removeChild(container.lastChild);
+                }
+            }
+
+            showNotification(message, type) {
+                const notification = document.createElement('div');
+                notification.className = `fixed top-24 right-6 glass-card p-4 rounded-xl border z-50 animate-slide-in ${
+                    type === 'success' ? 'border-green-500/30 bg-green-500/10' : 'border-red-500/30 bg-red-500/10'
+                }`;
+                notification.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-full ${type === 'success' ? 'bg-green-500/20' : 'bg-red-500/20'} flex items-center justify-center">
+                            <span class="${type === 'success' ? 'text-green-400' : 'text-red-400'}">
+                                ${type === 'success' ? '✓' : '✗'}
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-bold">${type === 'success' ? 'Success' : 'Error'}</div>
+                            <div class="text-xs text-white/60">${message}</div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.remove();
+                }, 5000);
+            }
+
+            startLiveUpdates() {
+                setInterval(() => {
+                    this.loadServices();
+                    this.loadAnalytics();
+                    this.addActivity('Dashboard auto-refreshed');
+                }, 30000);
+            }
+
+            getScoreClass(score) {
+                if (score >= 80) return 'excellent';
+                if (score >= 70) return 'good';
+                if (score >= 60) return 'fair';
+                if (score >= 50) return 'poor';
+                return 'critical';
+            }
+
+            getScoreColor(score) {
+                if (score >= 80) return 'text-[#10b981]';
+                if (score >= 70) return 'text-[#3b82f6]';
+                if (score >= 60) return 'text-[#f59e0b]';
+                if (score >= 50) return 'text-[#f97316]';
+                return 'text-[#ef4444]';
+            }
+
+            getStatusText(score) {
+                if (score >= 80) return 'Excellent';
+                if (score >= 70) return 'Good';
+                if (score >= 60) return 'Fair';
+                if (score >= 50) return 'Poor';
+                return 'Critical';
+            }
+        }
+
+        // Initialize Quantify
+        document.addEventListener('DOMContentLoaded', () => {
+            window.quantify = new Quantify();
+        });
+    </script>
+
+    <!-- CSRF Token -->
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+</body>
+</html>
