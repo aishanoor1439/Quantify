@@ -1,21 +1,23 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\TrustDecayController;
+use App\Http\Controllers\QuantifyController;
 
-// API Routes
-Route::prefix('api')->group(function () {
-    Route::get('/institutions', [TrustDecayController::class, 'getInstitutions']);
-    Route::get('/analytics', [TrustDecayController::class, 'getAnalytics']);
-    Route::get('/session-token', [TrustDecayController::class, 'generateSessionToken']);
-    Route::post('/feedback', [TrustDecayController::class, 'submitFeedback']);
-});
-
-// Web Routes
+// Home page
 Route::get('/', function () {
     return view('index');
 });
 
-Route::get('/analytics', function () {
-    return view('analytics');
+// API Routes
+Route::prefix('api')->group(function () {
+    Route::get('/modules', [QuantifyController::class, 'getModules']);
+    Route::get('/services', [QuantifyController::class, 'getServices']);
+    Route::get('/analytics', [QuantifyController::class, 'getAnalytics']);
+    Route::get('/session-token', [QuantifyController::class, 'generateSessionToken']);
+    Route::post('/feedback', [QuantifyController::class, 'submitFeedback']);
 });
+
+// Catch-all for SPA routing
+Route::get('/{any}', function () {
+    return view('index');
+})->where('any', '.*');
